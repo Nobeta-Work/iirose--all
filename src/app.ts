@@ -1,4 +1,4 @@
-import { buildAtAllMessage, buildFinalPayload, DEFAULT_MAX_MESSAGE_LENGTH, hasAtAllTrigger, isMessageTooLong, sanitizeMembers } from './feature/at-all'
+import { buildAtAllMessage, buildFinalPayload, DEFAULT_MAX_MESSAGE_LENGTH, hasAtAllTrigger, isMessageTooLong, sanitizeMembersDetailed } from './feature/at-all'
 import { captureDraftSnapshot, restoreDraftSnapshot } from './iirose/editor'
 import { resolveRuntimeContext } from './iirose/context'
 import { MemberResolver } from './iirose/member-resolver'
@@ -112,13 +112,24 @@ export class AtAllApp {
 
     try {
       const members = await this.memberResolver.resolveOnce()
-      const cleaned = sanitizeMembers(members, {
+      const memberResult = sanitizeMembersDetailed(members, {
         hostWin: this.hostWin,
-        selfId: submission.selfId,
+        selfId: submission.selfId ?? context.selfId,
         selfUsername: context.selfUsername,
       })
+      const cleaned = memberResult.cleaned
 
       if (cleaned.length === 0) {
+        logInfo('member filter result', {
+          roomId: context.roomId,
+          totalMembers: members.length,
+          keptMembers: cleaned.length,
+          excluded: memberResult.excluded.map((item) => ({
+            username: item.member.username,
+            uid: item.member.uid ?? null,
+            reason: item.reason,
+          })),
+        })
         this.notifier.warn('当前房间暂无可提及成员')
         restoreDraftSnapshot(draft)
         return
@@ -132,6 +143,17 @@ export class AtAllApp {
       }
 
       submission.submit(finalMessage)
+      logInfo('member filter result', {
+        roomId: context.roomId,
+        totalMembers: members.length,
+        keptMembers: cleaned.length,
+        excludedCount: memberResult.excluded.length,
+        excluded: memberResult.excluded.map((item) => ({
+          username: item.member.username,
+          uid: item.member.uid ?? null,
+          reason: item.reason,
+        })),
+      })
       logInfo('send success', {
         roomId: context.roomId,
         mentionCount: cleaned.length,

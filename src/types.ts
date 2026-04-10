@@ -19,6 +19,12 @@ export type PublicMessagePayload = {
   [key: string]: unknown
 }
 
+export type RuntimeContext = {
+  roomId: string | null
+  selfId: string | null
+  selfUsername: string | null
+}
+
 export type DraftSnapshot = {
   text: string
   element: HTMLElement | HTMLInputElement | HTMLTextAreaElement | null

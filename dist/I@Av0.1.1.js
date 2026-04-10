@@ -14,19 +14,19 @@
   var OBJECT_TYPE_KEYS = ["type", "kind", "category", "role", "accountType", "userType"];
   var BOOLEAN_HINT_KEYS = ["isAi", "isAI", "ai", "isBot", "bot", "robot"];
   var TEXT_HINT_KEYS = ["intro", "description", "signature", "bio", "title", "remark"];
-  function isArtificialMember(member, hostWin) {
+  function getArtificialMemberReason(member, hostWin) {
     const username = safeTrim(member.username);
     const uid = safeTrim(member.uid);
     const knownBots = resolveKnownBotRegistry(hostWin);
-    if (uid && knownBots.uids.has(uid)) return true;
-    if (username && knownBots.names.has(username)) return true;
+    if (uid && knownBots.uids.has(uid)) return "known_bot_uid";
+    if (username && knownBots.names.has(username)) return "known_bot_name";
     if (Array.isArray(member.raw)) {
-      return isArtificialArrayMember(member.raw);
+      return getArtificialArrayMemberReason(member.raw);
     }
     if (member.raw && typeof member.raw === "object") {
-      return isArtificialObjectMember(member.raw);
+      return getArtificialObjectMemberReason(member.raw);
     }
-    return false;
+    return null;
   }
   function resolveKnownBotRegistry(hostWin) {
     const constant = hostWin?.Constant;
@@ -42,29 +42,26 @@
     }
     return { uids, names };
   }
-  function isArtificialArrayMember(raw) {
+  function getArtificialArrayMemberReason(raw) {
     const accountType = safeTrim(asString(raw[1]));
     const moodText = normalizeCandidateText(asString(raw[6]));
-    const extraFlag = safeTrim(asString(raw[12]));
-    if (accountType === "4") return true;
-    if (extraFlag === "4") return true;
-    if (matchesArtificialText(moodText)) return true;
-    return false;
+    if (accountType === "4") return "raw_account_type_4";
+    if (matchesArtificialText(moodText)) return "raw_mood_keyword";
+    return null;
   }
-  function isArtificialObjectMember(raw) {
+  function getArtificialObjectMemberReason(raw) {
     for (const key of BOOLEAN_HINT_KEYS) {
-      if (raw[key] === true) return true;
+      if (raw[key] === true) return `raw_boolean_flag:${key}`;
     }
     for (const key of OBJECT_TYPE_KEYS) {
       const value = normalizeCandidateText(asString(raw[key]));
-      if (matchesArtificialText(value)) return true;
-      if (value === "4") return true;
+      if (matchesArtificialText(value)) return `raw_object_type_keyword:${key}`;
     }
     for (const key of TEXT_HINT_KEYS) {
       const value = normalizeCandidateText(asString(raw[key]));
-      if (matchesArtificialText(value)) return true;
+      if (matchesArtificialText(value)) return `raw_text_keyword:${key}`;
     }
-    return false;
+    return null;
   }
   function matchesArtificialText(value) {
     if (!value) return false;
@@ -103,24 +100,44 @@ ${mentions}`;
   function isMessageTooLong(text, limit = DEFAULT_MAX_MESSAGE_LENGTH) {
     return text.length > limit;
   }
-  function sanitizeMembers(members, options = {}) {
+  function sanitizeMembersDetailed(members, options = {}) {
     const seen = /* @__PURE__ */ new Set();
     const hostWin = options.hostWin ?? null;
     const selfId = safeTrim(options.selfId);
     const selfUsername = safeTrim(options.selfUsername);
     const cleaned = [];
+    const excluded = [];
     for (const member of members) {
       const username = safeTrim(member.username);
-      if (!username) continue;
-      if (/[\r\n]/.test(username)) continue;
-      if (isArtificialMember(member, hostWin)) continue;
-      if (selfId && member.uid && safeTrim(member.uid) === selfId) continue;
-      if (selfUsername && username === selfUsername) continue;
-      if (seen.has(username)) continue;
+      if (!username) {
+        excluded.push({ member, reason: "blank_username" });
+        continue;
+      }
+      if (/[\r\n]/.test(username)) {
+        excluded.push({ member: { ...member, username }, reason: "invalid_username_newline" });
+        continue;
+      }
+      const artificialReason = getArtificialMemberReason({ ...member, username }, hostWin);
+      if (artificialReason) {
+        excluded.push({ member: { ...member, username }, reason: artificialReason });
+        continue;
+      }
+      if (selfId && member.uid && safeTrim(member.uid) === selfId) {
+        excluded.push({ member: { ...member, username }, reason: "self_uid" });
+        continue;
+      }
+      if (selfUsername && username === selfUsername) {
+        excluded.push({ member: { ...member, username }, reason: "self_username" });
+        continue;
+      }
+      if (seen.has(username)) {
+        excluded.push({ member: { ...member, username }, reason: "duplicate_username" });
+        continue;
+      }
       seen.add(username);
       cleaned.push({ ...member, username });
     }
-    return cleaned;
+    return { cleaned, excluded };
   }
   function buildFinalPayload(originalPayload, finalMessage) {
     return {
@@ -187,6 +204,7 @@ ${mentions}`;
   function resolveRuntimeContext(hostWin) {
     return {
       roomId: resolveCurrentRoomId(hostWin),
+      selfId: resolveCurrentUserId(hostWin),
       selfUsername: resolveCurrentUsername(hostWin)
     };
   }
@@ -199,6 +217,11 @@ ${mentions}`;
     return null;
   }
   function resolveCurrentUsername(hostWin) {
+    const globals = hostWin;
+    for (const value of [globals.myself, globals.myself2, globals.username, globals.nickName]) {
+      const normalized = safeTrim(typeof value === "string" ? value : "");
+      if (normalized) return normalized;
+    }
     const candidates = [
       "iirose_username",
       "iirose_user_name",
@@ -211,6 +234,22 @@ ${mentions}`;
     }
     const meta = hostWin.document?.querySelector("[data-iia-self-username]");
     const fromMeta = safeTrim(meta?.dataset.iiaSelfUsername);
+    if (fromMeta) return fromMeta;
+    return null;
+  }
+  function resolveCurrentUserId(hostWin) {
+    const globals = hostWin;
+    for (const value of [globals.uid, globals.iirose_uid, globals.userId]) {
+      const normalized = safeTrim(typeof value === "string" ? value : "");
+      if (normalized) return normalized;
+    }
+    const candidates = ["iirose_uid", "iirose_user_id", "uid", "userId"];
+    for (const key of candidates) {
+      const value = safeTrim(hostWin.localStorage?.getItem(key));
+      if (value) return value;
+    }
+    const meta = hostWin.document?.querySelector("[data-iia-self-id]");
+    const fromMeta = safeTrim(meta?.dataset.iiaSelfId);
     if (fromMeta) return fromMeta;
     return null;
   }
@@ -597,12 +636,23 @@ ${mentions}`;
       const context = resolveRuntimeContext(this.hostWin);
       try {
         const members = await this.memberResolver.resolveOnce();
-        const cleaned = sanitizeMembers(members, {
+        const memberResult = sanitizeMembersDetailed(members, {
           hostWin: this.hostWin,
-          selfId: submission.selfId,
+          selfId: submission.selfId ?? context.selfId,
           selfUsername: context.selfUsername
         });
+        const cleaned = memberResult.cleaned;
         if (cleaned.length === 0) {
+          logInfo("member filter result", {
+            roomId: context.roomId,
+            totalMembers: members.length,
+            keptMembers: cleaned.length,
+            excluded: memberResult.excluded.map((item) => ({
+              username: item.member.username,
+              uid: item.member.uid ?? null,
+              reason: item.reason
+            }))
+          });
           this.notifier.warn("\u5F53\u524D\u623F\u95F4\u6682\u65E0\u53EF\u63D0\u53CA\u6210\u5458");
           restoreDraftSnapshot(draft);
           return;
@@ -614,6 +664,17 @@ ${mentions}`;
           return;
         }
         submission.submit(finalMessage);
+        logInfo("member filter result", {
+          roomId: context.roomId,
+          totalMembers: members.length,
+          keptMembers: cleaned.length,
+          excludedCount: memberResult.excluded.length,
+          excluded: memberResult.excluded.map((item) => ({
+            username: item.member.username,
+            uid: item.member.uid ?? null,
+            reason: item.reason
+          }))
+        });
         logInfo("send success", {
           roomId: context.roomId,
           mentionCount: cleaned.length,

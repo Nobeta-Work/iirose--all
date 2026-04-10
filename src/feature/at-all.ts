@@ -1,4 +1,4 @@
-import { isArtificialMember } from '../iirose/artificial-member'
+import { getArtificialMemberReason } from '../iirose/artificial-member'
 import type { HostWindowLike, MemberRecord, PublicMessagePayload } from '../types'
 import { generateMessageId } from '../utils/id'
 import { safeTrim } from '../utils/string'
@@ -29,25 +29,59 @@ export function sanitizeMembers(
     selfUsername?: string | null
   } = {},
 ): MemberRecord[] {
+  return sanitizeMembersDetailed(members, options).cleaned
+}
+
+export function sanitizeMembersDetailed(
+  members: MemberRecord[],
+  options: {
+    hostWin?: HostWindowLike | null
+    selfId?: string | null
+    selfUsername?: string | null
+  } = {},
+): {
+  cleaned: MemberRecord[]
+  excluded: Array<{ member: MemberRecord; reason: string }>
+} {
   const seen = new Set<string>()
   const hostWin = options.hostWin ?? null
   const selfId = safeTrim(options.selfId)
   const selfUsername = safeTrim(options.selfUsername)
   const cleaned: MemberRecord[] = []
+  const excluded: Array<{ member: MemberRecord; reason: string }> = []
 
   for (const member of members) {
     const username = safeTrim(member.username)
-    if (!username) continue
-    if (/[\r\n]/.test(username)) continue
-    if (isArtificialMember(member, hostWin)) continue
-    if (selfId && member.uid && safeTrim(member.uid) === selfId) continue
-    if (selfUsername && username === selfUsername) continue
-    if (seen.has(username)) continue
+    if (!username) {
+      excluded.push({ member, reason: 'blank_username' })
+      continue
+    }
+    if (/[\r\n]/.test(username)) {
+      excluded.push({ member: { ...member, username }, reason: 'invalid_username_newline' })
+      continue
+    }
+    const artificialReason = getArtificialMemberReason({ ...member, username }, hostWin)
+    if (artificialReason) {
+      excluded.push({ member: { ...member, username }, reason: artificialReason })
+      continue
+    }
+    if (selfId && member.uid && safeTrim(member.uid) === selfId) {
+      excluded.push({ member: { ...member, username }, reason: 'self_uid' })
+      continue
+    }
+    if (selfUsername && username === selfUsername) {
+      excluded.push({ member: { ...member, username }, reason: 'self_username' })
+      continue
+    }
+    if (seen.has(username)) {
+      excluded.push({ member: { ...member, username }, reason: 'duplicate_username' })
+      continue
+    }
     seen.add(username)
     cleaned.push({ ...member, username })
   }
 
-  return cleaned
+  return { cleaned, excluded }
 }
 
 export function buildFinalPayload(

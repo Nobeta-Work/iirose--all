@@ -8,22 +8,26 @@ const BOOLEAN_HINT_KEYS = ['isAi', 'isAI', 'ai', 'isBot', 'bot', 'robot']
 const TEXT_HINT_KEYS = ['intro', 'description', 'signature', 'bio', 'title', 'remark']
 
 export function isArtificialMember(member: MemberRecord, hostWin?: HostWindowLike | null): boolean {
+  return getArtificialMemberReason(member, hostWin) !== null
+}
+
+export function getArtificialMemberReason(member: MemberRecord, hostWin?: HostWindowLike | null): string | null {
   const username = safeTrim(member.username)
   const uid = safeTrim(member.uid)
   const knownBots = resolveKnownBotRegistry(hostWin)
 
-  if (uid && knownBots.uids.has(uid)) return true
-  if (username && knownBots.names.has(username)) return true
+  if (uid && knownBots.uids.has(uid)) return 'known_bot_uid'
+  if (username && knownBots.names.has(username)) return 'known_bot_name'
 
   if (Array.isArray(member.raw)) {
-    return isArtificialArrayMember(member.raw)
+    return getArtificialArrayMemberReason(member.raw)
   }
 
   if (member.raw && typeof member.raw === 'object') {
-    return isArtificialObjectMember(member.raw as Record<string, unknown>)
+    return getArtificialObjectMemberReason(member.raw as Record<string, unknown>)
   }
 
-  return false
+  return null
 }
 
 function resolveKnownBotRegistry(hostWin?: HostWindowLike | null): { uids: Set<string>; names: Set<string> } {
@@ -43,35 +47,32 @@ function resolveKnownBotRegistry(hostWin?: HostWindowLike | null): { uids: Set<s
   return { uids, names }
 }
 
-function isArtificialArrayMember(raw: unknown[]): boolean {
+function getArtificialArrayMemberReason(raw: unknown[]): string | null {
   const accountType = safeTrim(asString(raw[1]))
   const moodText = normalizeCandidateText(asString(raw[6]))
-  const extraFlag = safeTrim(asString(raw[12]))
 
-  if (accountType === '4') return true
-  if (extraFlag === '4') return true
-  if (matchesArtificialText(moodText)) return true
+  if (accountType === '4') return 'raw_account_type_4'
+  if (matchesArtificialText(moodText)) return 'raw_mood_keyword'
 
-  return false
+  return null
 }
 
-function isArtificialObjectMember(raw: Record<string, unknown>): boolean {
+function getArtificialObjectMemberReason(raw: Record<string, unknown>): string | null {
   for (const key of BOOLEAN_HINT_KEYS) {
-    if (raw[key] === true) return true
+    if (raw[key] === true) return `raw_boolean_flag:${key}`
   }
 
   for (const key of OBJECT_TYPE_KEYS) {
     const value = normalizeCandidateText(asString(raw[key]))
-    if (matchesArtificialText(value)) return true
-    if (value === '4') return true
+    if (matchesArtificialText(value)) return `raw_object_type_keyword:${key}`
   }
 
   for (const key of TEXT_HINT_KEYS) {
     const value = normalizeCandidateText(asString(raw[key]))
-    if (matchesArtificialText(value)) return true
+    if (matchesArtificialText(value)) return `raw_text_keyword:${key}`
   }
 
-  return false
+  return null
 }
 
 function matchesArtificialText(value: string): boolean {
