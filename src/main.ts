@@ -21,8 +21,12 @@ declare global {
     const canInstallWithMoveinputDo = Boolean(
       (hostWin as Window & { Utils?: { service?: { moveinputDo?: unknown } } }).Utils?.service?.moveinputDo,
     )
+    const canInstallWithMoveinputKeydown = Boolean(
+      (hostWin as Window & { moveinput?: { keydown?: unknown; val?: unknown } }).moveinput?.keydown
+      && (hostWin as Window & { moveinput?: { keydown?: unknown; val?: unknown } }).moveinput?.val,
+    )
 
-    if (!canInstallWithLegacySend && !canInstallWithMoveinputDo) {
+    if (!canInstallWithLegacySend && !canInstallWithMoveinputDo && !canInstallWithMoveinputKeydown) {
       hostWin.setTimeout(init, 500)
       return
     }

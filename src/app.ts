@@ -14,6 +14,7 @@ export class AtAllApp {
   private readonly memberResolver: MemberResolver
   private sendTaskPending = false
   private bypassMoveinputDo = false
+  private bypassMoveinputKeydown = false
 
   constructor(private readonly hostWin: Window) {
     this.notifier = new Notifier(hostWin)
@@ -22,8 +23,9 @@ export class AtAllApp {
   }
 
   install(): void {
-    const moveinputInstalled = this.installMoveinputDoInterceptor()
-    this.transport.install(moveinputInstalled ? undefined : (data) => this.handleLegacyOutgoing(data))
+    const moveinputDoInstalled = this.installMoveinputDoInterceptor()
+    const moveinputKeydownInstalled = this.installMoveinputKeydownInterceptor()
+    this.transport.install(moveinputDoInstalled || moveinputKeydownInstalled ? undefined : (data) => this.handleLegacyOutgoing(data))
     this.notifier.info('I@A 已加载')
     logInfo('initialized')
   }
@@ -87,6 +89,64 @@ export class AtAllApp {
               originalMoveinputDo(finalMessage, ...args)
             } finally {
               app.bypassMoveinputDo = false
+            }
+          },
+        },
+        draft,
+      )
+
+      return false
+    }
+
+    return true
+  }
+
+  private installMoveinputKeydownInterceptor(): boolean {
+    const moveinput = (this.hostWin as Window & {
+      moveinput?: {
+        val?: (...args: unknown[]) => unknown
+        keydown?: (...args: unknown[]) => unknown
+      }
+    }).moveinput
+
+    if (!moveinput || typeof moveinput.keydown !== 'function' || typeof moveinput.val !== 'function') {
+      return false
+    }
+
+    const originalKeydown = moveinput.keydown.bind(moveinput)
+    const app = this
+
+    moveinput.keydown = function patchedMoveinputKeydown(...args: unknown[]): unknown {
+      if (app.bypassMoveinputKeydown) {
+        return originalKeydown(...args)
+      }
+
+      if (args.length > 0) {
+        return originalKeydown(...args)
+      }
+
+      const currentText = String(moveinput.val?.() ?? '')
+      if (!hasAtAllTrigger(currentText)) {
+        return originalKeydown(...args)
+      }
+
+      if (app.sendTaskPending) {
+        app.notifier.warn('I@A 正在处理中，请稍候')
+        return false
+      }
+
+      const draft = captureDraftSnapshot(app.hostWin.document)
+      void app.processPayloadSubmission(
+        {
+          rawText: currentText,
+          selfId: null,
+          submit: (finalMessage) => {
+            app.bypassMoveinputKeydown = true
+            try {
+              moveinput.val?.(finalMessage)
+              originalKeydown()
+            } finally {
+              app.bypassMoveinputKeydown = false
             }
           },
         },

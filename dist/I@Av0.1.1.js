@@ -561,13 +561,15 @@ ${mentions}`;
       this.hostWin = hostWin;
       this.sendTaskPending = false;
       this.bypassMoveinputDo = false;
+      this.bypassMoveinputKeydown = false;
       this.notifier = new Notifier(hostWin);
       this.transport = new IiroseTransport(hostWin);
       this.memberResolver = new MemberResolver(hostWin, this.transport);
     }
     install() {
-      const moveinputInstalled = this.installMoveinputDoInterceptor();
-      this.transport.install(moveinputInstalled ? void 0 : (data) => this.handleLegacyOutgoing(data));
+      const moveinputDoInstalled = this.installMoveinputDoInterceptor();
+      const moveinputKeydownInstalled = this.installMoveinputKeydownInterceptor();
+      this.transport.install(moveinputDoInstalled || moveinputKeydownInstalled ? void 0 : (data) => this.handleLegacyOutgoing(data));
       this.notifier.info("I@A \u5DF2\u52A0\u8F7D");
       logInfo("initialized");
     }
@@ -622,6 +624,49 @@ ${mentions}`;
                 originalMoveinputDo(finalMessage, ...args);
               } finally {
                 app.bypassMoveinputDo = false;
+              }
+            }
+          },
+          draft
+        );
+        return false;
+      };
+      return true;
+    }
+    installMoveinputKeydownInterceptor() {
+      const moveinput = this.hostWin.moveinput;
+      if (!moveinput || typeof moveinput.keydown !== "function" || typeof moveinput.val !== "function") {
+        return false;
+      }
+      const originalKeydown = moveinput.keydown.bind(moveinput);
+      const app = this;
+      moveinput.keydown = function patchedMoveinputKeydown(...args) {
+        if (app.bypassMoveinputKeydown) {
+          return originalKeydown(...args);
+        }
+        if (args.length > 0) {
+          return originalKeydown(...args);
+        }
+        const currentText = String(moveinput.val?.() ?? "");
+        if (!hasAtAllTrigger(currentText)) {
+          return originalKeydown(...args);
+        }
+        if (app.sendTaskPending) {
+          app.notifier.warn("I@A \u6B63\u5728\u5904\u7406\u4E2D\uFF0C\u8BF7\u7A0D\u5019");
+          return false;
+        }
+        const draft = captureDraftSnapshot(app.hostWin.document);
+        void app.processPayloadSubmission(
+          {
+            rawText: currentText,
+            selfId: null,
+            submit: (finalMessage) => {
+              app.bypassMoveinputKeydown = true;
+              try {
+                moveinput.val?.(finalMessage);
+                originalKeydown();
+              } finally {
+                app.bypassMoveinputKeydown = false;
               }
             }
           },
@@ -703,7 +748,10 @@ ${mentions}`;
       const canInstallWithMoveinputDo = Boolean(
         hostWin.Utils?.service?.moveinputDo
       );
-      if (!canInstallWithLegacySend && !canInstallWithMoveinputDo) {
+      const canInstallWithMoveinputKeydown = Boolean(
+        hostWin.moveinput?.keydown && hostWin.moveinput?.val
+      );
+      if (!canInstallWithLegacySend && !canInstallWithMoveinputDo && !canInstallWithMoveinputKeydown) {
         hostWin.setTimeout(init, 500);
         return;
       }
