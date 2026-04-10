@@ -1,4 +1,5 @@
-import type { MemberRecord, PublicMessagePayload } from '../types'
+import { isArtificialMember } from '../iirose/artificial-member'
+import type { HostWindowLike, MemberRecord, PublicMessagePayload } from '../types'
 import { generateMessageId } from '../utils/id'
 import { safeTrim } from '../utils/string'
 
@@ -23,11 +24,13 @@ export function isMessageTooLong(text: string, limit = DEFAULT_MAX_MESSAGE_LENGT
 export function sanitizeMembers(
   members: MemberRecord[],
   options: {
+    hostWin?: HostWindowLike | null
     selfId?: string | null
     selfUsername?: string | null
   } = {},
 ): MemberRecord[] {
   const seen = new Set<string>()
+  const hostWin = options.hostWin ?? null
   const selfId = safeTrim(options.selfId)
   const selfUsername = safeTrim(options.selfUsername)
   const cleaned: MemberRecord[] = []
@@ -36,6 +39,7 @@ export function sanitizeMembers(
     const username = safeTrim(member.username)
     if (!username) continue
     if (/[\r\n]/.test(username)) continue
+    if (isArtificialMember(member, hostWin)) continue
     if (selfId && member.uid && safeTrim(member.uid) === selfId) continue
     if (selfUsername && username === selfUsername) continue
     if (seen.has(username)) continue

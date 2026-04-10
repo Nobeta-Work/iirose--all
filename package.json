@@ -1,10 +1,10 @@
 {
   "name": "iirose-at-all",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild src/main.ts --bundle --format=iife --target=es2020 --platform=browser --outfile=dist/bundle.js --sourcemap",
+    "build": "esbuild src/main.ts --bundle --format=iife --target=es2020 --platform=browser --outfile=dist/I@Av0.1.1.js --sourcemap",
     "test": "vitest run",
     "test:watch": "vitest"
   },

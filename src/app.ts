@@ -113,6 +113,7 @@ export class AtAllApp {
     try {
       const members = await this.memberResolver.resolveOnce()
       const cleaned = sanitizeMembers(members, {
+        hostWin: this.hostWin,
         selfId: submission.selfId,
         selfUsername: context.selfUsername,
       })

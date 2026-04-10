@@ -4,6 +4,14 @@ export type MemberRecord = {
   raw?: unknown
 }
 
+export type HostWindowLike = Pick<Window, 'Constant'> & {
+  Constant?: {
+    BOT_UID?: unknown
+    BOT_NAME?: unknown
+    BOT?: unknown
+  }
+}
+
 export type PublicMessagePayload = {
   m: string
   mc: string
