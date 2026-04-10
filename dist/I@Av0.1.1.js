@@ -43,9 +43,7 @@
     return { uids, names };
   }
   function getArtificialArrayMemberReason(raw) {
-    const accountType = safeTrim(asString(raw[1]));
     const moodText = normalizeCandidateText(asString(raw[6]));
-    if (accountType === "4") return "raw_account_type_4";
     if (matchesArtificialText(moodText)) return "raw_mood_keyword";
     return null;
   }
